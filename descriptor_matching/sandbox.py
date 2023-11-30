@@ -1,35 +1,59 @@
 import numpy as np
 import open3d as o3d
-from mod_M2DP import M2DP
+from mod_M2DP import M2DP, custom_descriptor
 # from cM2DP import M2DP
 
 import time
 
-pcd = o3d.io.read_point_cloud('point_cloud.pts')
-# o3d.visualization.draw_geometries([pcd])
+pcd = o3d.io.read_point_cloud('bag.pts')
+o3d.visualization.draw_geometries([pcd])
 
 point_cloud = np.array(pcd.points)
 point_cloud[:,2] -= np.min(point_cloud[:,2])
 
+lift = 0.75
+point_cloud[point_cloud[:,2]<lift,2] = lift
+
+pcd.points = o3d.utility.Vector3dVector(point_cloud)
+pcd = pcd.voxel_down_sample(.04)
+
+o3d.visualization.draw_geometries([pcd])
+
+point_cloud = np.array(pcd.points)
+
+s=r
 # print(pts.shape)
 # pts = pts[:3000]
 # des,A = M2DP(pts)
 # print(des.shape)
 
+# backup
+# HEIGHT_CLIP = 1.8
+# STRIDE = 0.25
+# # number of bins in theta, the 't' in paper
+# NUMT = 16
+# #number of bins in rho, the 'l' in paper
+# NUMR = 16
+# # number of azimuth angles, the 'p' in paper
+# NUMP = 5
+# # number of elevation angles, the 'q' in paper
+# NUMQ = 5
+
 
 # Box size in X and Y dimensions (M)
 #HYPERPARAMS
 M = 2.5
-HEIGHT_CLIP = 1.25
+HEIGHT_CLIP = 1.8
 STRIDE = 0.25
 # number of bins in theta, the 't' in paper
 NUMT = 16
 #number of bins in rho, the 'l' in paper
 NUMR = 16
 # number of azimuth angles, the 'p' in paper
-NUMP = 2
+NUMP = 3
 # number of elevation angles, the 'q' in paper
-NUMQ = 1
+NUMQ = 3
+NUMBINS=4
 
 # Find the minimum and maximum coordinates in X and Y dimensions
 min_x, min_y = np.min(point_cloud[:, 0:2], axis=0)
@@ -65,11 +89,16 @@ for i in range(num_x_boxes):
         # ]
         # print(np.max(box_points[:,2]))
         box_points = box_points[box_points[:,2] < HEIGHT_CLIP]
-
-        if len(box_points) > 500:
+        # print(len(box_points))
+        # if len(box_points) > 1000:
+        if len(box_points) > 100:
             now = time.perf_counter()
             des,A = M2DP(box_points, NUMT, NUMR, NUMP, NUMQ)
-            print(time.perf_counter() - now)
+            # des = custom_descriptor(box_points,HEIGHT_CLIP,num_bins=NUMBINS)
+            # print(des.shape)
+
+            if j % 100 == 0:
+                print(time.perf_counter() - now)
             # print(des.shape)
             descs.append(des)
             coords.append([np.mean([box_min_x,box_max_x]), np.mean([box_min_y,box_max_y])])

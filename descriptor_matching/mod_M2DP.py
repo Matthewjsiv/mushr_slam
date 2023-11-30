@@ -112,3 +112,49 @@ def M2DP(cloud, numT, numR, numP, numQ):
     u,s,v = np.linalg.svd(A);
     desM2DP = np.append(u[:,0],v.T[:,0])
     return desM2DP,A
+
+
+import numpy as np
+from scipy.stats import describe
+
+def custom_descriptor(point_cloud, height, num_bins=5):
+    # Extract the height values from the point cloud
+    point_cloud[:,2]-=np.min(point_cloud[:,2])
+    heights = point_cloud[:, 2]
+
+    # Determine the height range
+    min_height, max_height = 0, height
+    bin_width = (max_height - min_height) / num_bins
+
+    # Create an array to store statistical features for each bin
+    descriptors = []
+
+    for bin_index in range(num_bins):
+        # Define the bin height range
+        bin_min_height = min_height + bin_index * bin_width
+        bin_max_height = min_height + (bin_index + 1) * bin_width
+
+        # Select points within the current bin
+        bin_points = point_cloud[(heights >= bin_min_height) & (heights < bin_max_height)]
+
+        if len(bin_points) > 0:
+            # Compute statistical features for the bin
+            # mean = np.mean(bin_points, axis=0)
+            count = len(bin_points)/len(point_cloud)
+            std_dev = np.std(bin_points, axis=0)
+            std_dev = np.linalg.norm(std_dev)
+            # print(describe(bin_points)[-2:])
+            skewness, kurtosis = describe(bin_points)[-2:]
+            # print(skewness.shape)
+            # Concatenate statistical features into a single descriptor
+            # bin_descriptor = np.concatenate(([count], std_dev, skewness, kurtosis))
+            # print(skewness, kurtosis)
+            # bin_descriptor = np.concatenate(([count], std_dev, skewness, [kurtosis[0]]))
+            bin_descriptor = np.concatenate(([count], [std_dev]))
+            # print(bin_descriptor.shape)
+            descriptors.append(bin_descriptor)
+        else:
+            # descriptors.append(np.zeros(10))
+            descriptors.append(np.zeros(2))
+
+    return np.array(descriptors).flatten()
