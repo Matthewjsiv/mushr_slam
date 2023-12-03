@@ -1,13 +1,13 @@
 import numpy as np
 import open3d as o3d
-from mod_M2DP import M2DP, custom_descriptor
+from mod_M2DP import M2DP, custom_descriptor, custom_descriptor_color
 import time
 # from cM2DP import M2DP
 import sklearn
 import matplotlib.pyplot as plt
-
+import copy
 #HYPERPARAMS
-M = 2.5
+M = 3.5
 HEIGHT_CLIP = 1.8
 STRIDE = 0.25
 # number of bins in theta, the 't' in paper
@@ -18,7 +18,7 @@ NUMR = 16
 NUMP = 3
 # number of elevation angles, the 'q' in paper
 NUMQ = 3
-NUMBINS=4
+NUMBINS=8
 
 
 def split_cloud(cloud, xy, return_cloud=False):
@@ -50,6 +50,17 @@ def split_cloud(cloud, xy, return_cloud=False):
         return include, exclude
     else:
         return inc_points, exc_points
+
+def split_cloud_ids(cloud, xy, e_height=0, return_cloud=False):
+    box_min_x = xy[0] - M/2
+    box_max_x = xy[0] + M/2
+    box_min_y = xy[1] - M/2
+    box_max_y = xy[1] + M/2
+
+    # Extract the points within the current box
+    mask = (cloud[:,2]< HEIGHT_CLIP - e_height) & (cloud[:, 0] >= box_min_x) & (cloud[:, 0] < box_max_x) & (cloud[:, 1] >= box_min_y) & (cloud[:, 1] < box_max_y)
+
+    return mask
 
 
 def get_candidates(query, descs, n=5, self=False):
@@ -120,10 +131,13 @@ def main():
     descs = np.load('descriptors.npy')
     coords = np.load('coords.npy')
     pcd = o3d.io.read_point_cloud('point_cloud.pts')
+    pcd = pcd.voxel_down_sample(.06)
     point_cloud = np.array(pcd.points)
+    point_colors = np.array(pcd.colors)
     min = np.min(point_cloud[:,2])
     point_cloud[:,2] -= min
     pcd.translate([0,0,-min])
+
 
     # # qbox = o3d.io.read_point_cloud('realsense_sample/t1/7.pts')
     # # qbox = o3d.io.read_point_cloud('realsense_sample/t3/18.pts')
@@ -139,28 +153,46 @@ def main():
     # qpts = qpts[np.abs(qpts[:,0]) < M/2]
     # qpts = qpts[qpts[:,2] < HEIGHT_CLIP]
     #
-    ogpoints = np.load('kiss_clouds/550.npy')#[::50]
-    qbox = o3d.geometry.PointCloud()
-    qbox.points = o3d.utility.Vector3dVector(ogpoints)
+    # ogpoints = np.load('kiss_clouds/550.npy')#[::50]
+    # qbox = o3d.geometry.PointCloud()
+    # qbox.points = o3d.utility.Vector3dVector(ogpoints)
+    qbox = o3d.io.read_point_cloud('office2.pts')
+    ogqbox = copy.deepcopy(qbox)
+    xy = [-2.1,.2]
+    # qbox = o3d.io.read_point_cloud('office3.pts')
+    # xy = [2.1,1.2]
     # qbox = qbox.voxel_down_sample(.005)
-    qbox = qbox.voxel_down_sample(.04)
+    qbox = qbox.voxel_down_sample(.06)
     qbox, ind = qbox.remove_statistical_outlier(nb_neighbors=50,
                                                         std_ratio=2.0)
 
     o3d.visualization.draw_geometries([qbox])
 
+
     qpts = np.array(qbox.points)
-    tqpts = qpts.copy()
-    qpts[:,1] = tqpts[:,2]
-    qpts[:,2] = -tqpts[:,1]
-    qpts[:,2] -= np.min(qpts[:,2])
-    qpts[:,0] -= qpts[:,0].mean()
-    qpts[:,1] -= qpts[:,1].mean()
-    # print(np.mean(qpts))
-    qpts = qpts[np.abs(qpts[:,1]) < M/2]
-    qpts = qpts[np.abs(qpts[:,0]) < M/2]
-    # qpts = qpts[qpts[:,2] < HEIGHT_CLIP-.6]
-    qpts = qpts[qpts[:,2] < HEIGHT_CLIP]
+    qcolors = np.array(qbox.colors)
+    mask = split_cloud_ids(qpts,xy,e_height = 1.65)
+    qpts = qpts[mask]
+    qmean = qpts.mean(axis=0)
+    qpts[:,0] -= qmean[0]
+    qpts[:,1] -= qmean[1]
+    ogqbox.translate([-qmean[0],-qmean[1],0])
+    qcolors = qcolors[mask]
+    qbox.points = o3d.utility.Vector3dVector(qpts)
+    qbox.colors = o3d.utility.Vector3dVector(qcolors)
+    o3d.visualization.draw_geometries([qbox])
+    # qpts = np.array(qbox.points)
+    # tqpts = qpts.copy()
+    # qpts[:,1] = tqpts[:,2]
+    # qpts[:,2] = -tqpts[:,1]
+    # qpts[:,2] -= np.min(qpts[:,2])
+    # qpts[:,0] -= qpts[:,0].mean()
+    # qpts[:,1] -= qpts[:,1].mean()
+    # # print(np.mean(qpts))
+    # qpts = qpts[np.abs(qpts[:,1]) < M/2]
+    # qpts = qpts[np.abs(qpts[:,0]) < M/2]
+    # # qpts = qpts[qpts[:,2] < HEIGHT_CLIP-.6]
+    # qpts = qpts[qpts[:,2] < HEIGHT_CLIP]
     # qpts[:,2] += .5
 
     # tqpts = qpts.copy()
@@ -175,28 +207,35 @@ def main():
     #cross check against similar location crop
     xy = [-5,15]
     # xy = [-3,-1]
-    cpts, _ = split_cloud(point_cloud, xy)
+    mask = split_cloud_ids(point_cloud, xy, e_height=0)
+    cpts = point_cloud[mask]
+    ccolors = point_colors[mask]
     cpts[:,0] -= cpts[:,0].mean()
     cpts[:,1] -= cpts[:,1].mean()
+    cpts[cpts[:,2]<0.8,2] = 0.8
+    # print(cpts.shape)
     cbox = o3d.geometry.PointCloud()
     cbox.points = o3d.utility.Vector3dVector(cpts)
+    cbox.colors = o3d.utility.Vector3dVector(ccolors)
     o3d.visualization.draw_geometries([cbox, qbox])
 
     o3d.visualization.draw_geometries([pcd, qbox])
 
     # qpts = cpts
 
-    num_cands = 50
-    des,A = M2DP(qpts, NUMT, NUMR, NUMP, NUMQ)
-    # des = custom_descriptor(qpts,HEIGHT_CLIP,num_bins=NUMBINS)
+    num_cands = 1
+    # des,A = M2DP(qpts, NUMT, NUMR, NUMP, NUMQ)
+    # print(qcolors)
+    des = custom_descriptor_color(qpts,qcolors,HEIGHT_CLIP,num_bins=NUMBINS)
+    # print(des)
     # plt.imshow(des.reshape(10,5))
     # plt.show()
 
 
-    cdes, _ = M2DP(cpts, NUMT, NUMR, NUMP, NUMQ)
-    # cdes = custom_descriptor(cpts,HEIGHT_CLIP,num_bins=NUMBINS)
-    # plt.imshow(cdes.reshape(10,5))
-    # plt.show()
+    # cdes, _ = M2DP(cpts, NUMT, NUMR, NUMP, NUMQ)
+    cdes = custom_descriptor_color(cpts,ccolors,HEIGHT_CLIP,num_bins=NUMBINS)
+    # # plt.imshow(cdes.reshape(10,5))
+    # # plt.show()
     print(des)
     print(cdes)
     # print(des-cdes)
@@ -207,7 +246,13 @@ def main():
     # print(cpts.min(axis=0),cpts.max(axis=0))
 
     # des = custom_descriptor(qpts,HEIGHT_CLIP)
+
+    db_mask = (np.abs(coords[:,0]- -5) < 4) & (np.abs(coords[:,1]- 15) < 4)
+    descs = descs[db_mask]
+    coords = coords[db_mask]
+
     ids,certs = get_candidates(des,descs,n=num_cands)
+    print(certs)
 
 
     # boxlist = []
@@ -225,10 +270,24 @@ def main():
         viz_list.append(box)
 
     qbox.paint_uniform_color([0,1,0])
-    qbox.translate([-0.01,-0.01,0.01])
+    # qbox.translate([-0.01,-0.01,0.01])
+    qbox.translate([coords[ids[0]][0]+.3,coords[ids[0]][1]+.5,1.65])
 
     # viz_list = [pcd, qbox] #+ boxlist
     o3d.visualization.draw_geometries(viz_list)
+
+    reg_p2p = o3d.pipelines.registration.registration_icp(
+    qbox, pcd, .02, np.eye(4),
+    o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+    o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000))
+
+    qbox.transform(reg_p2p.transformation)
+    o3d.visualization.draw_geometries([pcd,qbox])
+
+    ogqbox.translate([coords[ids[0]][0]+.3,coords[ids[0]][1]+.5,1.65])
+    ogqbox.transform(reg_p2p.transformation)
+    # ogqbox.translate([0,.3,0])
+    o3d.visualization.draw_geometries([pcd,ogqbox])
 
     # error = test(point_cloud,descs, coords)
 
